@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+
+import argparse, sys, json
+from urllib.parse import urlparse
+from shlex import quote
+
+parser = argparse.ArgumentParser(description="Bitwarden vault export to himitsu converter")
+parser.add_argument("input", type=argparse.FileType("r", encoding="utf-8"), help="vault export file in JSON format to be converted.")
+parser.add_argument("--proto", type=str, nargs="?", default="web", help="protocol (i.e. proto section)")
+parser.add_argument("-f", "--folders", action="store_true", help="include folder names (e.g. folder=Social)")
+args = parser.parse_args()
+
+vdict = json.loads(args.input.read())
+
+if vdict["encrypted"]:
+    sys.stderr.write("[error] encrypted exports are not supported. extiing...\n")
+    exit(1)
+
+folders = dict()
+for folder in vdict["folders"]:
+    folders[folder["id"]] = folder["name"]
+
+for item in vdict["items"]:
+    folder = ""
+    if item["folderId"]:
+        folder = folders[item["folderId"]]
+    
+    if not "login" in item: continue
+    login = item["login"]
+    
+    if not login["uris"]: continue
+    
+    uri = login["uris"][0]["uri"]
+    if not uri.startswith("http://") and not uri.startswith("https://"):
+        uri = "//" + uri
+    host = urlparse(uri).hostname.replace("www.", "")
+
+    user = login["username"]
+    passw = login["password"]
+    
+    entry = "proto=%s host=%s username=%s password!=%s"
+    entry %= (quote(args.proto), quote(host), quote(user), quote(passw))
+    
+    if args.folders and folder:
+        entry += " folder?=%s" % quote(folder)
+
+    sys.stdout.write("add %s\n" % entry)
